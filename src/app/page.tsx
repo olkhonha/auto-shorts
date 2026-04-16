@@ -321,7 +321,7 @@ export default function ShortsFactoryPlatform() {
         
         // Vids 페이지 새 탭 띄우기
         setTimeout(() => {
-           window.open('https://docs.google.com/video', '_blank');
+           window.open('https://vids.new', '_blank');
         }, 1500);
 
         setPipelineState(prev => {
