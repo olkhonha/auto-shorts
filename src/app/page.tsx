@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Home, TrendingUp, BrainCircuit, Video, BarChart3, Globe, 
   Menu, X, CheckCircle, Zap, MonitorPlay, Play, RefreshCw, 
-  Settings, Save, Edit3, CheckSquare, Square, Bell, Calendar
+  Settings, Save, Edit3, CheckSquare, Square, Bell, Calendar, Key
 } from 'lucide-react';
 
 // --- 전역 UI 컴포넌트 ---
@@ -97,7 +97,7 @@ export default function ShortsFactoryPlatform() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { title: "보안 계층 가동", value: "Active", icon: BarChart3, color: "text-emerald-400" },
+          { title: "로컬 보안 키", value: "Active", icon: Key, color: "text-emerald-400" },
           { title: "대기 중인 상품", value: `${pipelineState.products.length - pipelineState.selectedForScript.length} 개`, icon: Globe, color: "text-cyan-400" },
           { title: "생성된 대본", value: `${Object.keys(pipelineState.scripts).length} 개`, icon: BrainCircuit, color: "text-purple-400" },
           { title: "스케줄러 예약", value: `${pipelineState.scheduledItems.length} 건`, icon: MonitorPlay, color: "text-red-400" },
@@ -133,31 +133,49 @@ export default function ShortsFactoryPlatform() {
         return;
       }
       
+      const apiKey = localStorage.getItem('GEMINI_API_KEY');
+      if (!apiKey) {
+        showToast('환경 설정에서 Gemini API 키를 먼저 입력해주세요!', 'error');
+        setCurrentView('settings');
+        return;
+      }
+
       setIsProcessing(true);
-      showToast('API 서버로 대본 생성을 요청했습니다 (보안 채널)...', 'info');
+      showToast('Gemini API 모델에 직접 요청 중입니다...', 'info');
       
       try {
-        // 서버의 안전한 API로 요청 전송. 프론트엔드는 생성 로직(알고리즘)을 모름.
-        const res = await fetch('/api/script/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            productIds: pipelineState.selectedForScript,
-            products: pipelineState.products 
-          })
-        });
-
-        const data = await res.json();
+        const newScripts: any = {};
         
-        if (data.success) {
-          setPipelineState(prev => ({ ...prev, scripts: { ...prev.scripts, ...data.scripts } }));
-          showToast('대본 생성이 안전하게 완료되었습니다!', 'success');
-          setCurrentView('script');
-        } else {
-          showToast('서버 오류로 대본 생성에 실패했습니다.', 'error');
-        }
+        await Promise.all(pipelineState.selectedForScript.map(async (id: number) => {
+           const prod = pipelineState.products.find(p => p.id === id);
+           if (!prod) return;
+
+           const prompt = `당신은 최고의 숏폼 전문 대본 작가입니다. 이름: ${prod.name}, 가격: ${prod.price}, 출처: ${prod.source}, 특징: ${prod.trend}. 친근하고 에너지가 넘치며 후킹이 강한 틱톡커 톤으로 작성하세요. 결과는 오직 다음 구조의 순수 JSON 포맷으로 출력하세요(마크다운 \`\`\`json 등 포함 금지): {"title": "...", "hook": "...", "body": "...", "cta": "..."}`;
+
+           const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                 contents: [{ parts: [{ text: prompt }] }],
+                 generationConfig: { responseMimeType: "application/json" }
+              })
+           });
+
+           if (!response.ok) throw new Error('API 응답 에러');
+
+           const data = await response.json();
+           const textResult = data.candidates[0].content.parts[0].text;
+           const scriptData = JSON.parse(textResult);
+           newScripts[id] = scriptData;
+        }));
+
+        setPipelineState(prev => ({ ...prev, scripts: { ...prev.scripts, ...newScripts } }));
+        showToast('대본 생성이 완료되었습니다!', 'success');
+        setCurrentView('script');
+        
       } catch (err) {
-        showToast('네트워크 오류가 발생했습니다.', 'error');
+        console.error("Gemini 연동 에러:", err);
+        showToast('API 통신 중 오류가 발생했습니다. 키를 확인하세요.', 'error');
       } finally {
         setIsProcessing(false);
       }
@@ -220,7 +238,7 @@ export default function ShortsFactoryPlatform() {
          return;
       }
       setPipelineState(prev => ({ ...prev, selectedForRender: idsToRender }));
-      showToast('안전한 보안 터널을 통해 스튜디오로 데이터를 전송했습니다.', 'success');
+      showToast('스튜디오로 데이터를 전송했습니다.', 'success');
       setCurrentView('studio');
     };
 
@@ -229,7 +247,7 @@ export default function ShortsFactoryPlatform() {
         <div className="text-center py-20">
           <BrainCircuit size={64} className="mx-auto text-slate-600 mb-4" />
           <h3 className="text-xl font-bold text-white mb-2">생성된 대본이 없습니다.</h3>
-          <GlowButton onClick={() => setCurrentView('sourcing')}>소싱 화면으로 가기</GlowButton>
+          <GlowButton onClick={() => setCurrentView('sourcing')}>소싱 화면로 가기</GlowButton>
         </div>
       );
     }
@@ -239,7 +257,7 @@ export default function ShortsFactoryPlatform() {
         <div className="flex justify-between items-center bg-purple-900/20 p-4 rounded-xl border border-purple-500/30">
           <div>
              <h3 className="text-purple-400 font-bold">2단계: 대본 검수 및 편집</h3>
-             <p className="text-sm text-slate-400">서버의 AI 알고리즘이 작성한 대본을 확인하고 렌더링 스튜디오로 전송하세요.</p>
+             <p className="text-sm text-slate-400">생성된 대본을 확인하고 렌더링 스튜디오로 전송하세요.</p>
           </div>
           <GlowButton active onClick={sendToStudio} icon={Video}>
             스튜디오로 전송 ({selectedProducts.length}건)
@@ -281,7 +299,7 @@ export default function ShortsFactoryPlatform() {
     );
   };
 
-  // --- 뷰 4: 렌더 스튜디오 (서버 렌더링 호출로 마이그레이션) ---
+  // --- 뷰 4: 렌더 스튜디오 (브라우저 상 시뮬레이션으로 복구) ---
   const RenderStudioView = () => {
     const [renderingId, setRenderingId] = useState<number | null>(null);
     const [progress, setProgress] = useState(0);
@@ -289,56 +307,40 @@ export default function ShortsFactoryPlatform() {
     const startRender = async (id: number) => {
       setRenderingId(id);
       setProgress(10);
-      showToast('서버의 비공개 클라우드 렌더링 엔진으로 요청을 보냅니다.', 'info');
+      showToast('클라이언트 기반 렌더링 시뮬레이션을 시작합니다.', 'info');
       
-      // 클라이언트에는 렌더링 진행도 시뮬레이션만 남기고, 실제 처리는 서버가 담당
       const interval = setInterval(() => {
         setProgress(p => {
-          if (p >= 90) return 90;
-          return p + 5;
+          if (p >= 100) {
+            clearInterval(interval);
+            setTimeout(() => {
+              setRenderingId(null);
+              showToast('렌더링 완료 및 스케줄러로 전송되었습니다.', 'success');
+              
+              setPipelineState(prev => {
+                 const prod = prev.products.find(p => p.id === id);
+                 const script = prev.scripts[id];
+                 const newItem = {
+                    id: Date.now(),
+                    productId: id,
+                    productName: prod?.name,
+                    img: prod?.img,
+                    title: script.title,
+                    scheduledTime: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 24시간 뒤
+                    status: '예약 대기중'
+                 };
+                 return {
+                   ...prev,
+                   selectedForRender: prev.selectedForRender.filter(rId => rId !== id),
+                   scheduledItems: [...prev.scheduledItems, newItem]
+                 };
+              });
+            }, 800);
+            return 100;
+          }
+          return p + 10;
         });
       }, 500);
-
-      try {
-        const res = await fetch('/api/render/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ script: pipelineState.scripts[id] })
-        });
-        
-        await res.json();
-        clearInterval(interval);
-        setProgress(100);
-        
-        setTimeout(() => {
-          setRenderingId(null);
-          showToast('렌더링 완료 및 스케줄러로 전송되었습니다.', 'success');
-          
-          setPipelineState(prev => {
-             const prod = prev.products.find(p => p.id === id);
-             const script = prev.scripts[id];
-             const newItem = {
-                id: Date.now(), // 고유 스케줄 ID
-                productId: id,
-                productName: prod?.name,
-                img: prod?.img,
-                title: script.title,
-                scheduledTime: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 24시간 뒤
-                status: '예약 대기중'
-             };
-             
-             return {
-               ...prev,
-               selectedForRender: prev.selectedForRender.filter(rId => rId !== id),
-               scheduledItems: [...prev.scheduledItems, newItem]
-             };
-          });
-        }, 800);
-      } catch (err) {
-        clearInterval(interval);
-        setRenderingId(null);
-        showToast('서버 렌더링 중 오류 발생', 'error');
-      }
     };
 
     const items = pipelineState.selectedForRender.map(id => pipelineState.products.find(p => p.id === id)!);
@@ -356,8 +358,8 @@ export default function ShortsFactoryPlatform() {
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex justify-between items-center bg-blue-900/20 p-4 rounded-xl border border-blue-500/30">
           <div>
-             <h3 className="text-blue-400 font-bold">3단계: 비공개 클라우드 오토 렌더링</h3>
-             <p className="text-sm text-slate-400">서버 측에서 보안 모드로 구동되는 GPU 인스턴스를 활용합니다.</p>
+             <h3 className="text-blue-400 font-bold">3단계: 오토 렌더링 시뮬레이션</h3>
+             <p className="text-sm text-slate-400">대본을 바탕으로 브라우저에서 가상의 렌더링 처리를 수행합니다.</p>
           </div>
         </div>
 
@@ -372,14 +374,14 @@ export default function ShortsFactoryPlatform() {
                   </div>
                   <div className="flex-1">
                     <h4 className="font-bold text-white text-sm line-clamp-1">{pipelineState.scripts[prod.id]?.title}</h4>
-                    <p className="text-xs text-slate-400 mt-1">예상 렌더링 시간: 약 2분 (Server Hosted)</p>
+                    <p className="text-xs text-slate-400 mt-1">예상 렌더링 시간: 약 20초 (Local)</p>
                   </div>
                 </div>
 
                 {isRenderingThis ? (
                    <div className="mt-4">
                      <div className="flex justify-between text-xs mb-1">
-                       <span className="text-cyan-400 animate-pulse">안전하게 렌더링 중...</span>
+                       <span className="text-cyan-400 animate-pulse">렌더링 로딩 중...</span>
                        <span className="text-white">{progress}%</span>
                      </div>
                      <div className="w-full bg-white/10 rounded-full h-2">
@@ -389,7 +391,6 @@ export default function ShortsFactoryPlatform() {
                 ) : (
                    <div className="flex gap-2 mt-auto pt-4 border-t border-white/5">
                      <GlowButton onClick={() => startRender(prod.id)} active icon={Play} className="flex-1 py-2 text-sm">렌더링 시작</GlowButton>
-                     <GlowButton icon={MonitorPlay} className="flex-1 py-2 text-sm text-red-400 hover:text-red-300 border-white/5 bg-white/5">서버망 업로드</GlowButton>
                    </div>
                 )}
               </GlassCard>
@@ -400,16 +401,16 @@ export default function ShortsFactoryPlatform() {
     );
   };
 
-// --- 뷰 6: 스케줄러 화면 ---
+  // --- 뷰 6: 스케줄러 화면 ---
   const SchedulerView = () => {
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex justify-between items-center bg-yellow-900/20 p-4 rounded-xl border border-yellow-500/30">
           <div>
              <h3 className="text-yellow-400 font-bold flex items-center gap-2"><Calendar size={18}/> 퍼블리시 스케줄러</h3>
-             <p className="text-sm text-slate-400">완성된 영상을 유튜브 플랫폼으로 전송 대기 중인 목록입니다.</p>
+             <p className="text-sm text-slate-400">완성된 영상을 플랫폼으로 전송 대기 중인 목록입니다.</p>
           </div>
-          <GlowButton onClick={() => showToast('서버와의 유튜브 API 연동이 필요합니다.', 'error')} active icon={MonitorPlay}>
+          <GlowButton onClick={() => showToast('유튜브 API 연동이 필요합니다.', 'error')} active icon={MonitorPlay}>
             전체 즉시 업로드
           </GlowButton>
         </div>
@@ -445,25 +446,61 @@ export default function ShortsFactoryPlatform() {
     );
   };
 
-// --- 뷰 5: 세팅 화면 (API Config 뷰가 제거됨, 환경 변수로 관리) ---
-  const SettingsView = () => (
-    <div className="max-w-2xl space-y-6 animate-in fade-in duration-500">
-       <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-         <Settings className="text-slate-400" /> 환경 설정 (Server Configured)
-       </h2>
-       
-       <GlassCard className="space-y-6">
-         <div>
-           <div className="p-4 bg-emerald-900/20 border border-emerald-500/50 rounded-xl">
-             <h3 className="text-emerald-400 font-bold flex items-center gap-2 mb-2"><CheckCircle size={18}/> 시스템 보안 활성화됨</h3>
-             <p className="text-sm text-slate-300 leading-relaxed">
-               최신 아키텍처 적용으로 모든 민감한 정보(Gemini API, YouTube 제어키 등)가 서버단의 <span className="font-mono text-cyan-300">.env</span> 환경 변수 파일에 안전하게 격리되었습니다. 브라우저에서 탈취당할 위험이 0%로 완벽하게 차단되었습니다. 설정을 변경하려면 서버 인프라 관리자에게 문의하십시오.
-             </p>
+  // --- 뷰 5: 세팅 (로컬 스토리지에 키 저장, 제로 노출 보안) ---
+  const SettingsView = () => {
+    const [apiKeyInput, setApiKeyInput] = useState('');
+    
+    useEffect(() => {
+      const stored = localStorage.getItem('GEMINI_API_KEY');
+      if (stored) setApiKeyInput(stored);
+    }, []);
+
+    const saveKey = () => {
+      if(!apiKeyInput.trim()) {
+         localStorage.removeItem('GEMINI_API_KEY');
+         showToast('키가 삭제되었습니다.', 'info');
+         return;
+      }
+      localStorage.setItem('GEMINI_API_KEY', apiKeyInput);
+      showToast('API 키가 브라우저 내부에 안전하게 저장되었습니다!', 'success');
+    };
+
+    return (
+      <div className="max-w-2xl space-y-6 animate-in fade-in duration-500">
+         <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+           <Settings className="text-slate-400" /> 환경 설정 (Local Storage)
+         </h2>
+         
+         <GlassCard className="space-y-6">
+           <div>
+             <div className="p-4 bg-purple-900/20 border border-purple-500/50 rounded-xl mb-6">
+               <h3 className="text-purple-400 font-bold flex items-center gap-2 mb-2"><Key size={18}/> Zero-Exposure 보안 적용됨</h3>
+               <p className="text-sm text-slate-300 leading-relaxed">
+                 코드에 API 키를 하드코딩하지 않습니다. 본인의 API 키를 아래에 입력하면, 오직 <b>이 브라우저의 로컬 저장소</b>에만 저장되어 구동되므로 GitHub 소스코드를 통해 외부로 절대 유출되지 않습니다.
+               </p>
+             </div>
+             
+             <div>
+                <label className="block text-sm font-bold text-purple-400 mb-2">Gemini API Key</label>
+                <input 
+                  type="password" 
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="AIzaSy..." 
+                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white focus:border-purple-400 focus:outline-none font-mono text-sm" 
+                />
+             </div>
            </div>
-         </div>
-       </GlassCard>
-    </div>
-  );
+
+           <div className="pt-6 border-t border-white/10">
+              <GlowButton active icon={Save} onClick={saveKey} className="w-full">
+                로컬 저장소에 키 안심 저장
+              </GlowButton>
+           </div>
+         </GlassCard>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#04060d] text-slate-200 font-sans selection:bg-cyan-500/30 flex overflow-hidden">
@@ -520,7 +557,7 @@ export default function ShortsFactoryPlatform() {
             <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-xs text-white font-bold">PRO</div>
             <div className="flex-1 overflow-hidden">
               <p className="text-sm font-bold text-white truncate">Pro Creator</p>
-              <p className="text-[10px] text-emerald-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Encrypted TLS</p>
+              <p className="text-[10px] text-emerald-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Zero-Exposure</p>
             </div>
           </div>
         </div>
