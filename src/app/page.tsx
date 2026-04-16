@@ -63,6 +63,7 @@ export default function ShortsFactoryPlatform() {
     selectedForScript: [] as number[],
     scripts: {} as any,
     selectedForRender: [] as number[],
+    scheduledItems: [] as any[],
   });
 
   const showToast = (message: string, type = 'info') => {
@@ -99,7 +100,7 @@ export default function ShortsFactoryPlatform() {
           { title: "보안 계층 가동", value: "Active", icon: BarChart3, color: "text-emerald-400" },
           { title: "대기 중인 상품", value: `${pipelineState.products.length - pipelineState.selectedForScript.length} 개`, icon: Globe, color: "text-cyan-400" },
           { title: "생성된 대본", value: `${Object.keys(pipelineState.scripts).length} 개`, icon: BrainCircuit, color: "text-purple-400" },
-          { title: "자동화 업로드", value: "보호됨", icon: MonitorPlay, color: "text-red-400" },
+          { title: "스케줄러 예약", value: `${pipelineState.scheduledItems.length} 건`, icon: MonitorPlay, color: "text-red-400" },
         ].map((stat, i) => (
           <GlassCard key={i} className="flex flex-col justify-center border-t-2" style={{ borderTopColor: 'currentColor', color: stat.color }}>
             <div className="flex justify-between items-start mb-4">
@@ -308,9 +309,30 @@ export default function ShortsFactoryPlatform() {
         await res.json();
         clearInterval(interval);
         setProgress(100);
+        
         setTimeout(() => {
           setRenderingId(null);
-          showToast('영상 렌더링 및 암호화 처리가 완료되었습니다!', 'success');
+          showToast('렌더링 완료 및 스케줄러로 전송되었습니다.', 'success');
+          
+          setPipelineState(prev => {
+             const prod = prev.products.find(p => p.id === id);
+             const script = prev.scripts[id];
+             const newItem = {
+                id: Date.now(), // 고유 스케줄 ID
+                productId: id,
+                productName: prod?.name,
+                img: prod?.img,
+                title: script.title,
+                scheduledTime: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 24시간 뒤
+                status: '예약 대기중'
+             };
+             
+             return {
+               ...prev,
+               selectedForRender: prev.selectedForRender.filter(rId => rId !== id),
+               scheduledItems: [...prev.scheduledItems, newItem]
+             };
+          });
         }, 800);
       } catch (err) {
         clearInterval(interval);
@@ -378,7 +400,52 @@ export default function ShortsFactoryPlatform() {
     );
   };
 
-  // --- 뷰 5: 세팅 화면 (API Config 뷰가 제거됨, 환경 변수로 관리) ---
+// --- 뷰 6: 스케줄러 화면 ---
+  const SchedulerView = () => {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="flex justify-between items-center bg-yellow-900/20 p-4 rounded-xl border border-yellow-500/30">
+          <div>
+             <h3 className="text-yellow-400 font-bold flex items-center gap-2"><Calendar size={18}/> 퍼블리시 스케줄러</h3>
+             <p className="text-sm text-slate-400">완성된 영상을 유튜브 플랫폼으로 전송 대기 중인 목록입니다.</p>
+          </div>
+          <GlowButton onClick={() => showToast('서버와의 유튜브 API 연동이 필요합니다.', 'error')} active icon={MonitorPlay}>
+            전체 즉시 업로드
+          </GlowButton>
+        </div>
+
+        {pipelineState.scheduledItems.length === 0 ? (
+          <div className="text-center py-20">
+            <Calendar size={64} className="mx-auto text-slate-600 mb-4" />
+            <h3 className="text-xl font-bold text-white mb-2">예약된 일정이 없습니다.</h3>
+            <p className="text-slate-400">스튜디오에서 영상을 먼저 렌더링해주세요.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+             {pipelineState.scheduledItems.map(item => (
+                <GlassCard key={item.id} className="flex flex-col md:flex-row gap-4 items-center !p-4">
+                   <div className="w-16 h-16 rounded-lg overflow-hidden bg-black shrink-0 relative">
+                     <img src={item.img} className="w-full h-full object-cover opacity-60" alt="thumb"/>
+                     <MonitorPlay className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-80" size={20}/>
+                   </div>
+                   <div className="flex-1 w-full text-left">
+                      <div className="flex justify-between items-start">
+                         <h4 className="font-bold text-white max-w-[70%] truncate">{item.title}</h4>
+                         <span className="bg-yellow-500/20 text-yellow-500 text-xs px-2 py-1 flex items-center justify-center rounded-md font-bold whitespace-nowrap min-w-max ml-2">{item.status}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
+                         <Calendar size={12}/> {new Date(item.scheduledTime).toLocaleString('ko-KR')}
+                      </p>
+                   </div>
+                </GlassCard>
+             ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+// --- 뷰 5: 세팅 화면 (API Config 뷰가 제거됨, 환경 변수로 관리) ---
   const SettingsView = () => (
     <div className="max-w-2xl space-y-6 animate-in fade-in duration-500">
        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -467,13 +534,7 @@ export default function ShortsFactoryPlatform() {
           {currentView === 'script' && <ScriptEditorView />}
           {currentView === 'studio' && <RenderStudioView />}
           {currentView === 'settings' && <SettingsView />}
-          {currentView === 'scheduler' && (
-            <div className="text-center py-20">
-              <Calendar size={64} className="mx-auto text-slate-600 mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">스케줄러 기능 준비 중입니다.</h3>
-              <p className="text-slate-400">서버 컴포넌트를 통해 안전하게 예약 작업이 배포될 예정입니다.</p>
-            </div>
-          )}
+          {currentView === 'scheduler' && <SchedulerView />}
         </div>
       </main>
 
