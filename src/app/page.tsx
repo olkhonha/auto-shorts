@@ -299,48 +299,50 @@ export default function ShortsFactoryPlatform() {
     );
   };
 
-  // --- 뷰 4: 렌더 스튜디오 (브라우저 상 시뮬레이션으로 복구) ---
+  // --- 뷰 4: 렌더 스튜디오 (Google Vids 연동) ---
   const RenderStudioView = () => {
-    const [renderingId, setRenderingId] = useState<number | null>(null);
-    const [progress, setProgress] = useState(0);
+    const startVidsExport = async (id: number) => {
+      const prod = pipelineState.products.find(p => p.id === id);
+      const script = pipelineState.scripts[id];
+      if (!prod || !script) return;
 
-    const startRender = async (id: number) => {
-      setRenderingId(id);
-      setProgress(10);
-      showToast('클라이언트 기반 렌더링 시뮬레이션을 시작합니다.', 'info');
-      
-      const interval = setInterval(() => {
-        setProgress(p => {
-          if (p >= 100) {
-            clearInterval(interval);
-            setTimeout(() => {
-              setRenderingId(null);
-              showToast('렌더링 완료 및 스케줄러로 전송되었습니다.', 'success');
-              
-              setPipelineState(prev => {
-                 const prod = prev.products.find(p => p.id === id);
-                 const script = prev.scripts[id];
-                 const newItem = {
-                    id: Date.now(),
-                    productId: id,
-                    productName: prod?.name,
-                    img: prod?.img,
-                    title: script.title,
-                    scheduledTime: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 24시간 뒤
-                    status: '예약 대기중'
-                 };
-                 return {
-                   ...prev,
-                   selectedForRender: prev.selectedForRender.filter(rId => rId !== id),
-                   scheduledItems: [...prev.scheduledItems, newItem]
-                 };
-              });
-            }, 800);
-            return 100;
-          }
-          return p + 10;
+      const vidsPrompt = `[Google Vids 쇼츠(세로형) 생성 지시문]
+이 내용을 바탕으로 숏폼 비디오(9:16 비율)를 생성해줘. 영상 내 텍스트 자막과 타이밍을 리듬감 있게 분배할 것.
+
+[영상 제목]: ${script.title}
+
+[도입부 (처음 3초 Hook)]: ${script.hook}
+[본문 내용 (상품 설명)]: ${script.body}
+[행동 유도 버튼/멘트 (CTA)]: ${script.cta}`;
+
+      try {
+        await navigator.clipboard.writeText(vidsPrompt);
+        showToast('Google Vids용 대본이 클립보드에 복사되었습니다! Vids 창에 붙여넣기 하세요.', 'success');
+        
+        // Vids 페이지 새 탭 띄우기
+        setTimeout(() => {
+           window.open('https://docs.google.com/video', '_blank');
+        }, 1500);
+
+        setPipelineState(prev => {
+           const newItem = {
+              id: Date.now(),
+              productId: id,
+              productName: prod?.name,
+              img: prod?.img,
+              title: script.title,
+              scheduledTime: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), 
+              status: 'Vids 생성 완료'
+           };
+           return {
+             ...prev,
+             selectedForRender: prev.selectedForRender.filter(rId => rId !== id),
+             scheduledItems: [...prev.scheduledItems, newItem]
+           };
         });
-      }, 500);
+      } catch (err) {
+        showToast('클립보드 복사 실패. 다시 시도해주세요.', 'error');
+      }
     };
 
     const items = pipelineState.selectedForRender.map(id => pipelineState.products.find(p => p.id === id)!);
@@ -358,41 +360,31 @@ export default function ShortsFactoryPlatform() {
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex justify-between items-center bg-blue-900/20 p-4 rounded-xl border border-blue-500/30">
           <div>
-             <h3 className="text-blue-400 font-bold">3단계: 오토 렌더링 시뮬레이션</h3>
-             <p className="text-sm text-slate-400">대본을 바탕으로 브라우저에서 가상의 렌더링 처리를 수행합니다.</p>
+             <h3 className="text-blue-400 font-bold">3단계: Google Vids 영상 생성</h3>
+             <p className="text-sm text-slate-400">대본을 Google Vids 포맷으로 복사하고 외부 툴로 영상을 찍어냅니다.</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {items.map(prod => {
-            const isRenderingThis = renderingId === prod.id;
             return (
-              <GlassCard key={prod.id} className="flex flex-col gap-4">
+              <GlassCard key={prod.id} className="flex flex-col gap-4 border-blue-500/20 hover:border-blue-500/50">
                 <div className="flex gap-4 items-center">
-                  <div className="w-16 h-16 rounded-lg overflow-hidden bg-black shrink-0">
+                  <div className="w-16 h-16 rounded-lg overflow-hidden bg-black shrink-0 relative border border-white/10">
                      <img src={prod.img} className="w-full h-full object-cover opacity-70" alt="thumbnail"/>
+                     <Video className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/50" size={20}/>
                   </div>
                   <div className="flex-1">
                     <h4 className="font-bold text-white text-sm line-clamp-1">{pipelineState.scripts[prod.id]?.title}</h4>
-                    <p className="text-xs text-slate-400 mt-1">예상 렌더링 시간: 약 20초 (Local)</p>
+                    <p className="text-xs text-blue-400 mt-1 flex items-center gap-1"><Zap size={12}/> Vids 프롬프트 변환 준비됨</p>
                   </div>
                 </div>
 
-                {isRenderingThis ? (
-                   <div className="mt-4">
-                     <div className="flex justify-between text-xs mb-1">
-                       <span className="text-cyan-400 animate-pulse">렌더링 로딩 중...</span>
-                       <span className="text-white">{progress}%</span>
-                     </div>
-                     <div className="w-full bg-white/10 rounded-full h-2">
-                       <div className="bg-gradient-to-r from-cyan-400 to-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                     </div>
-                   </div>
-                ) : (
-                   <div className="flex gap-2 mt-auto pt-4 border-t border-white/5">
-                     <GlowButton onClick={() => startRender(prod.id)} active icon={Play} className="flex-1 py-2 text-sm">렌더링 시작</GlowButton>
-                   </div>
-                )}
+                <div className="flex gap-2 mt-auto pt-4 border-t border-white/5">
+                  <GlowButton onClick={() => startVidsExport(prod.id)} active icon={MonitorPlay} className="flex-1 py-2 text-sm !bg-gradient-to-r !from-blue-600 !to-indigo-600 !shadow-[0_0_15px_rgba(37,99,235,0.4)]">
+                    Vids로 비디오 만들기
+                  </GlowButton>
+                </div>
               </GlassCard>
             );
           })}
